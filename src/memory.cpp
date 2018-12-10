@@ -4,28 +4,33 @@ namespace PingCap
 {
 	Memory::Memory(){}
 	
-	size_t Memory::getMemSize()
+	float Memory::convertByUnit(uint64_t size_in_byte, Unit unit)
 	{
-		return size;
+		return size_in_byte / (float)unit;
 	}
 
-	size_t Memory::getVirtualMemUsed()
+	float Memory::getMemSize(Unit unit)
+	{
+		return convertByUnit(size, unit);
+	}
+
+	float Memory::getVirtualMemUsed(Unit unit)
 	{
 		GetProcessMemoryInfo(GetCurrentProcess(), (PROCESS_MEMORY_COUNTERS*)&pmc, sizeof(pmc));
-		size_t virtual_memory_used = pmc.PrivateUsage;
-		return virtual_memory_used;
+		uint64_t virtual_memory_used = pmc.PrivateUsage;
+		return convertByUnit(virtual_memory_used, unit);
 	}
 
-	size_t Memory::getPhysicalMemUsed()
+	float Memory::getPhysicalMemUsed(Unit unit)
 	{
 		GetProcessMemoryInfo(GetCurrentProcess(), (PROCESS_MEMORY_COUNTERS*)&pmc, sizeof(pmc));
-		size_t physical_memory_used = pmc.WorkingSetSize;
-		return physical_memory_used;
+		uint64_t physical_memory_used = pmc.WorkingSetSize;
+		return convertByUnit(physical_memory_used, unit);
 	}
 
-	bool Memory::noFreeMem()
+	bool Memory::hasFreeMem()
 	{
-		return getMemSize() - getPhysicalMemUsed() < NO_FREE_MEM_THRESH;
+		return getMemSize(Unit::BYTE) - getPhysicalMemUsed(Unit::BYTE) >= NO_FREE_MEM_THRESH;
 	}
 }
 
