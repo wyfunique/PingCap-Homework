@@ -5,7 +5,8 @@ using namespace PingCap;
 
 int main()
 {
-	Memory mem = Memory();
+	std::string log_path = "log.txt";
+	Memory mem = Memory(log_path);
 	std::cout << "Current total mem: " << mem.getMemSize(Unit::MB) << std::endl;
 	std::cout << "Current virtual mem used: " << mem.getVirtualMemUsed(Unit::MB) << std::endl;
 	std::cout << "Current physical mem used: " << mem.getPhysicalMemUsed(Unit::MB) << std::endl;
