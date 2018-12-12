@@ -6,6 +6,8 @@ namespace PingCap
 
 	Logger::Logger(std::string log_path)
 	{
+		log.open(log_path, std::ofstream::out | std::ofstream::trunc);
+		log.close();
 		log.open(log_path, std::ofstream::out | std::ofstream::app);
 	}
 	/*

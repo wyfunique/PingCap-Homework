@@ -1,14 +1,19 @@
 #ifndef MEMORY_H
 #define MEMORY_H
 
+#include <algorithm>
+#include <direct.h>
 #include <windows.h>
 #include <psapi.h>
 #include <cstdint>
 #include <fstream>
 #include <iostream>
 #include <map> 
+#include <list>
 #include <string>
 #include <unordered_map>
+//#include "Shlwapi.h"
+#include <filesystem>
 #include "../include/logger.h"
 
 namespace PingCap 
@@ -40,6 +45,8 @@ namespace PingCap
 	*/
 	const uint64_t NO_FREE_MEM_THRESH = 308 * BYTE; 
 	
+	const std::string TEMP_FILE_DIR = "temp\\";
+	const std::string LOG_FILE = "log.txt";
 	/*
 		This class is abstract of main memory. 
 		It provides information of memory status gotten through Windows API, and loads or saves items between memory and disk.
@@ -48,19 +55,25 @@ namespace PingCap
 	{
 		private:
 			const uint64_t size = MEMORY_SIZE;
+			const std::string temp_file_dir = TEMP_FILE_DIR;
+			const std::string log_file = LOG_FILE;
+
 			PROCESS_MEMORY_COUNTERS_EX pmc;
 			//size_t virtual_memory_used;
-			std::unordered_map<std::string, uint64_t> counter;
-			std::list<std::string> LRU_queue;
-			std::ifstream input_stream;
-			std::ofstream output_stream;
+			std::unordered_map<std::string, std::pair<uint64_t, std::list<std::string>::iterator>> counter;
+			std::list<std::string> LRU_queue; // list needs O(1) time to push front, while vector needs O(n) time. So we use list for LRU.
+			//std::ifstream input_stream;
+			//std::ofstream output_stream;
+			std::unordered_map<std::string, std::fstream*> opened_files; // map and unordered map will copy the reference, so here we use pointers of the file streams to avoid copying.
 			Logger logger;
 
 			float convertByUnit(uint64_t size_in_byte, Unit unit = DEFAULT_UNIT);
+			std::string encodeURLAsFilename(std::string url);
+			bool isFileEmpty(std::fstream* f);
 
 		public:
 
-			Memory(std::string log_path);
+			Memory();
 
 			/*
 				Get total memory size displayed in given unit
@@ -86,7 +99,8 @@ namespace PingCap
 				Opens a file for reading from or writting to 
 				@ mode: "r" means reading while "w" means writting
 			*/
-			void openFile(std::string filename, std::string mode);
+			std::fstream* openFile(std::string filename, std::string mode);
+
 			/*
 				Opens a file for reading from
 			*/
@@ -96,32 +110,45 @@ namespace PingCap
 				Opens a file for writting to 
 			*/
 			//void openOutputFile(std::string filename);
-			
+
+			/*
+				Close the opened file with given filename
+			*/
+			void closeFile(std::string filename);
+
 			/*
 			Closes the opened input file
 			*/
-			void closeInputFile();
-
+			//void closeInputFile();
 			/*
 			Closes the opened output file
 			*/
-			void closeOutputFile();
+			//void closeOutputFile();
+
+			/*
+				Check if the given file is opened
+			*/
+			bool isFileOpened(std::string filename);
 
 			/*
 				Checks if the ifstrean 'in' is assigned to a file
 			*/
-			bool isInputFileOpened();
+			//bool isInputFileOpened();
 
 			/*
 				Checks if the ofstrean 'out' is assigned to a file
 			*/
-			bool isOutputFileOpened();
+			//bool isOutputFileOpened();
 
 			/*
 				Loads next url from the file into counter using LRU algorithm.
 			*/
-			void loadNextURL();
+			void loadNextURL(std::fstream input_stream);
 
+			/*
+				Save the least recently used URL to disk and remove it from memory
+			*/
+			void saveOldURL();
 			
 		/*
 			This function opens and loads content from the file with given filename	
