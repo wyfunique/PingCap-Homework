@@ -13,37 +13,37 @@ void testAllGetMemRelated()
 	std::cout << "Has free mem? " << mem.hasFreeMem() << std::endl;
 }
 
-void testLoadNextURL()
+void testLoadNextURL(Alg alg)
 {
 	Memory mem;
 	std::fstream* f = mem.openFile("util/urls.txt", "r");
-	mem.loadNextURL(f);
+	mem.loadNextURL(f, alg);
 	// Print one url and its count, 1, here, if correct
 	mem.printCounter();
 }
 
-void testSaveOldURL()
+void testSaveOldURL(Alg alg)
 {
 	Memory mem;
 	std::fstream* f = mem.openFile("util/urls.txt", "r");
-	mem.loadNextURL(f);
+	mem.loadNextURL(f, alg);
 	std::cout << "Before saving: " << std::endl;
 	// Print one url and its count, 1, here, if correct
 	mem.printCounter();
 	std::cout << "After saving: " << std::endl;
-	mem.saveOldURL();
+	mem.saveOldURL(alg);
 	// Print nothing here, if correct
 	mem.printCounter();
 	// There will be a new file in folder "temp" named by this url, if correct
 }
 
-void testScanAllURLs()
+void testScanAllURLs(Alg alg)
 {
 	Memory mem;
 	std::fstream* f = mem.openFile("util/urls.txt", "r");
 	// Iterate and count on all urls
 	uint64_t idx = 1;
-	while (mem.loadNextURL(f))
+	while (mem.loadNextURL(f, alg))
 	{
 		if (idx % 2000 == 0) 
 		{
@@ -55,10 +55,10 @@ void testScanAllURLs()
 	// Finally there would be 1000 tmp files in folder 'temp/', as we set the number of distinct urls to 1000. 
 }
 
-float getRunningTime(void(*function)())
+float getRunningTime(void(*function)(Alg), Alg alg)
 {
 	clock_t start = clock();
-	function();
+	function(alg);
 	clock_t end = clock();
 	float diff = (float)end - (float)start;
 	float seconds = diff / CLOCKS_PER_SEC;
@@ -71,7 +71,7 @@ int main()
 	//testLoadNextURL();
 	//testSaveOldURL();
 	//testScanAllURLs();
-	float seconds = getRunningTime(&testScanAllURLs);
+	float seconds = getRunningTime(&testScanAllURLs, Alg::MRU);
 	std::cout << "Running time: " << seconds << "s" << std::endl;
 	int tmp;
 	std::cin >> tmp;

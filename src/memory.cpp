@@ -187,7 +187,7 @@ namespace PingCap
 	}
 	*/
 
-	bool Memory::loadNextURL(std::fstream* input_stream)
+	bool Memory::loadNextURL(std::fstream* input_stream, Alg alg)
 	{
 		std::string url;
 		//logger.logInfo("loadNextURL", "Memory size: " + std::to_string(getMemSize(Unit::MB)));
@@ -195,7 +195,7 @@ namespace PingCap
 		if (!hasFreeMem())
 		{
 			//logger.printInfo("loadNextURL", "No free memory, so remove an old URL and write it to disk first.");
-			saveOldURL(); // Save the least recently used URL to disk and remove it from memory
+			saveOldURL(alg); // Save the least recently used URL to disk and remove it from memory
 		}
 		if (std::getline(*input_stream, url)) // Get next line/url successfully
 		{
@@ -222,7 +222,8 @@ namespace PingCap
 		//return NULL;
 	}
 
-	void Memory::saveOldURL()
+	
+	void Memory::saveOldURL(Alg alg)
 	{
 		// Get the least recently used URL and remove it from LRU queue
 		
@@ -234,14 +235,30 @@ namespace PingCap
 			//logger.printError("saveOldURL", "Your memory is too small! This program cannot run.");
 			exit(1);
 		}
-		std::string last_url = LRU_queue.back();
-		uint64_t count = counter[last_url].first;
-		LRU_queue.pop_back();
+
+		std::string replaced_url; 
+		if (alg == Alg::LRU)
+		{
+			replaced_url = LRU_queue.back();
+			LRU_queue.pop_back();
+		}
+		else if (alg == Alg::MRU)
+		{
+			replaced_url = LRU_queue.front();
+			LRU_queue.pop_front();
+		}
+		else
+		{
+			logger.logError("saveOldURL", "Unsupported URL replacement algorithm");
+			exit(1);
+		}
+
+		uint64_t count = counter[replaced_url].first;
 		
 		// Save the URL into its temp file
 		// First, read the temp file to check if it has content, that is, record when we save URL last time 
-		std::string last_url_encoded = encodeURLAsFilename(last_url);
-		std::string temp_file_path = temp_file_dir + last_url_encoded + ".tmp";
+		std::string replaced_url_encoded = encodeURLAsFilename(replaced_url);
+		std::string temp_file_path = temp_file_dir + replaced_url_encoded + ".tmp";
 		std::fstream* input_stream = openFile(temp_file_path, "r");
 		uint64_t last_count = 0;
 
@@ -249,26 +266,19 @@ namespace PingCap
 		if (!isFileEmpty(input_stream))
 		{
 			// Read last count of this URL
-			*input_stream >> last_url >> last_count;
-			/*
-			closeFile(temp_file_path);
-			std::fstream* output_stream = openFile(temp_file_path, "a");
-			(*output_stream) << last_url << " " << count;
-			//output_stream << counter[last_url].first;
-			closeFile(temp_file_path);
-			*/
+			*input_stream >> replaced_url >> last_count;
 		}
 		closeFile(temp_file_path);
 		input_stream = NULL;
 		std::fstream* output_stream = openFile(temp_file_path, "w");
 		
 		// Calculate and save the total count until now
-		(*output_stream) << last_url << " " << (last_count + count); 
+		(*output_stream) << replaced_url << " " << (last_count + count);
 		closeFile(temp_file_path);
 		output_stream = NULL;
 
 		// Remove the URL from map 'counter'
-		counter.erase(last_url);
+		counter.erase(replaced_url);
 		//logger.logInfo("saveOldURL", "Save URL '" + last_url + "' (count: " + std::to_string(count) + ") into temp file");
 
 		num_save_URL++;

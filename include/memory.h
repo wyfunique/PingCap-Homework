@@ -19,6 +19,15 @@
 namespace PingCap 
 {
 	/*
+		We implemented two URL replacement algorithms.
+	*/
+	enum Alg:int
+	{
+		LRU = 0,
+		MRU = 1
+	};
+
+	/*
 		In case of integer overflow, we use uint64_t for memory and file sizes.
 	*/
 	enum Unit:uint64_t
@@ -150,14 +159,14 @@ namespace PingCap
 			//bool isOutputFileOpened();
 
 			/*
-				Loads next url from the file into counter using LRU algorithm.
+				Loads next url from the file into counter using given replacement algorithm.
 			*/
-			bool loadNextURL(std::fstream* input_stream);
+			bool loadNextURL(std::fstream* input_stream, Alg alg);
 
 			/*
-				Save the least recently used URL to disk and remove it from memory
+				Save and remove an old URL from memory using given algorithm 
 			*/
-			void saveOldURL();
+			void saveOldURL(Alg alg);
 			
 			uint64_t getNumSaveURL();
 		/*
