@@ -8,6 +8,7 @@ namespace PingCap
 		LRU_queue = std::list<std::string>();
 		opened_files = std::unordered_map<std::string, std::fstream*>();
 		logger = Logger(log_file);
+		num_save_URL = 0;
 		//logger.logInfo("Memory", "HAHA");
 		
 		//std::filesystem
@@ -53,6 +54,16 @@ namespace PingCap
 		return f->peek() == std::fstream::traits_type::eof();
 	}
 
+	void Memory::printCounter()
+	{
+		for (auto const& pair : counter)
+		{
+			std::string url = pair.first;
+			uint64_t count = pair.second.first;
+			std::cout << count << " " << url << std::endl;
+		}
+	}
+
 	float Memory::getMemSize(Unit unit)
 	{
 		return convertByUnit(size, unit);
@@ -74,14 +85,18 @@ namespace PingCap
 
 	bool Memory::hasFreeMem()
 	{
-		return getMemSize(Unit::BYTE) - getPhysicalMemUsed(Unit::BYTE) >= NO_FREE_MEM_THRESH;
+		// Convert all three numbers to int64_t in order to avoid underflow if getMemSize < getPhysicalMemUsed
+		// NOTE: When comparing signed with unsigned, the compiler converts the signed value to unsigned.
+		//logger.logInfo("K", std::to_string((int64_t)getMemSize(Unit::BYTE)) + " " + std::to_string((int64_t)getPhysicalMemUsed(Unit::BYTE)) + " " + std::to_string(NO_FREE_MEM_THRESH) + " " + std::to_string((int64_t)getMemSize(Unit::BYTE) - (int64_t)getPhysicalMemUsed(Unit::BYTE) >= NO_FREE_MEM_THRESH));
+		//return (int64_t)getMemSize(Unit::BYTE) - (int64_t)getPhysicalMemUsed(Unit::BYTE) >= (int64_t)NO_FREE_MEM_THRESH;
+		return (int64_t)getMemSize(Unit::BYTE) - (int64_t)getVirtualMemUsed(Unit::BYTE) >= (int64_t)NO_FREE_MEM_THRESH;
 	}
 
 	std::fstream* Memory::openFile(std::string filename, std::string mode)
 	{
 		if (isFileOpened(filename))
 		{
-			logger.printInfo("openFile", "File '" + filename + "' has been opened.");
+			logger.logInfo("openFile", "File '" + filename + "' has been opened.");
 			return opened_files[filename];
 		}
 		if (mode == "r")
@@ -107,7 +122,7 @@ namespace PingCap
 		}
 		else
 		{
-			logger.printError("openFile", "Unsupported mode when openning the file '" + filename + "'");
+			logger.logError("openFile", "Unsupported mode when openning the file '" + filename + "'");
 			return NULL;
 		}
 	}
@@ -129,13 +144,15 @@ namespace PingCap
 		// The file is not opened
 		if (iter == opened_files.end())
 		{
-			logger.printError("closeFile", "File '" + filename + "' is not opened.");
+			logger.logError("closeFile", "File '" + filename + "' is not opened.");
 		}
 		// The file is opened
 		else
 		{
 			std::fstream* f = opened_files[filename];
 			f->close();
+			// Remember delete f here since f is created by new, and only close() cannot release memory occupied by the fstream itself.
+			delete f; 
 			opened_files.erase(iter);
 		}
 
@@ -170,15 +187,17 @@ namespace PingCap
 	}
 	*/
 
-	void Memory::loadNextURL(std::fstream input_stream)
+	bool Memory::loadNextURL(std::fstream* input_stream)
 	{
 		std::string url;
+		//logger.logInfo("loadNextURL", "Memory size: " + std::to_string(getMemSize(Unit::MB)));
+		//logger.logInfo("loadNextURL", "Actual used: " + std::to_string(getPhysicalMemUsed(Unit::MB)));
 		if (!hasFreeMem())
 		{
-			logger.printInfo("loadNextURL", "No free memory, so remove an old URL and write it to disk first.");
+			//logger.printInfo("loadNextURL", "No free memory, so remove an old URL and write it to disk first.");
 			saveOldURL(); // Save the least recently used URL to disk and remove it from memory
 		}
-		if (std::getline(input_stream, url)) // Get next line/url successfully
+		if (std::getline(*input_stream, url)) // Get next line/url successfully
 		{
 			//std::unordered_map<std::string, std::pair<uint64_t, std::vector<std::string>::iterator>>::iterator idx = counter.find(url);
 			// not present in memory 
@@ -194,12 +213,27 @@ namespace PingCap
 				LRU_queue.push_front(url);
 				counter[url] = std::pair<uint64_t, std::list<std::string>::iterator>(1 + counter[url].first, LRU_queue.begin());
 			}
+			// Load successfully
+			return true; 
+			//return url;
 		}
+		// No more urls to load
+		return false;
+		//return NULL;
 	}
 
 	void Memory::saveOldURL()
 	{
 		// Get the least recently used URL and remove it from LRU queue
+		
+		// Now you have no free memory and there is no record in your memory. 
+		// This means your memory is not enough initially. The game cannot start.
+		if (LRU_queue.size() == 0)
+		{
+			logger.logError("saveOldURL", "Your memory is too small! This program cannot run.");
+			//logger.printError("saveOldURL", "Your memory is too small! This program cannot run.");
+			exit(1);
+		}
 		std::string last_url = LRU_queue.back();
 		uint64_t count = counter[last_url].first;
 		LRU_queue.pop_back();
@@ -225,15 +259,24 @@ namespace PingCap
 			*/
 		}
 		closeFile(temp_file_path);
+		input_stream = NULL;
 		std::fstream* output_stream = openFile(temp_file_path, "w");
 		
 		// Calculate and save the total count until now
 		(*output_stream) << last_url << " " << (last_count + count); 
 		closeFile(temp_file_path);
-		
+		output_stream = NULL;
+
 		// Remove the URL from map 'counter'
 		counter.erase(last_url);
-		logger.logInfo("saveOldURL", "Save URL '" + last_url + "' (count: " + std::to_string(count) + ") into temp file");
+		//logger.logInfo("saveOldURL", "Save URL '" + last_url + "' (count: " + std::to_string(count) + ") into temp file");
+
+		num_save_URL++;
+	}
+
+	uint64_t Memory::getNumSaveURL()
+	{
+		return num_save_URL;
 	}
 }
 

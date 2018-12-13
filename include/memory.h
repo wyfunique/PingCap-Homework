@@ -34,8 +34,10 @@ namespace PingCap
 	//const uint64_t KB = 1000 * BYTE;
 	//const uint64_t MB = 1000 * KB;
 	//const uint64_t GB = 1000 * MB;
-	const uint64_t MEMORY_SIZE = 1 * GB;
-	const uint64_t FILE_SIZE = 100 * GB;
+
+	// TODO: Write all config parameters to config file and read the file each time when starting.
+	const uint64_t MEMORY_SIZE = 15 * MB;
+	//const uint64_t FILE_SIZE = 1 * GB;
 
 	/*
 		This threashold equals to (2 * maximum URL length + 8) bytes
@@ -66,6 +68,8 @@ namespace PingCap
 			//std::ofstream output_stream;
 			std::unordered_map<std::string, std::fstream*> opened_files; // map and unordered map will copy the reference, so here we use pointers of the file streams to avoid copying.
 			Logger logger;
+			// The number of saving URL to disk
+			uint64_t num_save_URL;
 
 			float convertByUnit(uint64_t size_in_byte, Unit unit = DEFAULT_UNIT);
 			std::string encodeURLAsFilename(std::string url);
@@ -74,6 +78,11 @@ namespace PingCap
 		public:
 
 			Memory();
+
+			/*
+				Print stuff in map 'counter'
+			*/
+			void printCounter();
 
 			/*
 				Get total memory size displayed in given unit
@@ -143,13 +152,14 @@ namespace PingCap
 			/*
 				Loads next url from the file into counter using LRU algorithm.
 			*/
-			void loadNextURL(std::fstream input_stream);
+			bool loadNextURL(std::fstream* input_stream);
 
 			/*
 				Save the least recently used URL to disk and remove it from memory
 			*/
 			void saveOldURL();
 			
+			uint64_t getNumSaveURL();
 		/*
 			This function opens and loads content from the file with given filename	
 		void load(std::string filename);
