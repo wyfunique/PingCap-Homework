@@ -30,7 +30,7 @@ if __name__ == "__main__":
 	GB = 1000 * MB
 	
 	filename = "urls.txt"
-	max_num = 1000
-	max_size = 1 * GB
+	max_num = 1000 
+	max_size = 10 * MB
 	gen = URLGenerator()
 	gen.generateURLs(filename, max_num, max_size)

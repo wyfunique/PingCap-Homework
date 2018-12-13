@@ -55,6 +55,26 @@ void testScanAllURLs(Alg alg)
 	// Finally there would be 1000 tmp files in folder 'temp/', as we set the number of distinct urls to 1000. 
 }
 
+void testScanAllURLsAfterProc(Alg alg)
+{
+	Memory mem;
+	mem.procURLs("util/urls.txt", "util/proc_urls_1.txt");
+	std::fstream* f = mem.openFile("util/proc_urls_1.txt", "r");
+	// Iterate and count on all urls
+	uint64_t idx = 1;
+	while (mem.loadNextURLAfterProc(f, alg))
+	{
+		if (idx % 2000 == 0)
+		{
+			std::cout << "No." << idx << " URL loaded. " << "Saving URL number: " << mem.getNumSaveURL() << std::endl;
+			std::cout << "Memory used: " << mem.getVirtualMemUsed(Unit::MB) << "/" << mem.getMemSize(Unit::MB) << std::endl;
+		}
+		idx++;
+	}
+	// Finally there would be 1000 tmp files in folder 'temp/', as we set the number of distinct urls to 1000. 
+}
+
+
 float getRunningTime(void(*function)(Alg), Alg alg)
 {
 	clock_t start = clock();
@@ -63,7 +83,27 @@ float getRunningTime(void(*function)(Alg), Alg alg)
 	float diff = (float)end - (float)start;
 	float seconds = diff / CLOCKS_PER_SEC;
 	return seconds;
-	//std::cout << "Running time: " << seconds << "s" << std::endl;
+}
+
+void testGetAllFilenames()
+{
+	Memory mem;
+	std::vector<std::string> files = mem.getFileNamesInDirectory("temp/*");
+	for (int i = 0; i < files.size(); i++)
+	{
+		std::cout << files[i] << std::endl;
+	}
+}
+
+
+void testGetTopKFreqItems(int k, Alg alg)
+{
+	Memory mem;
+	std::vector<std::pair<uint64_t, std::string>> top_k = mem.getTopKFreqItems(k, alg);
+	for (int i=0; i<top_k.size(); i++)
+	{
+		std::cout << top_k[i].first << " " << top_k[i].second << std::endl;
+	}
 }
 
 int main()
@@ -71,8 +111,15 @@ int main()
 	//testLoadNextURL();
 	//testSaveOldURL();
 	//testScanAllURLs();
-	float seconds = getRunningTime(&testScanAllURLs, Alg::MRU);
-	std::cout << "Running time: " << seconds << "s" << std::endl;
+	//float seconds = getRunningTime(&testScanAllURLsAfterProc, Alg::LRU);
+	//std::cout << "Running time: " << seconds << "s" << std::endl;
+	//Memory mem;
+	//Logger logger("RunningTime_log.txt");
+	//logger.logInfo("Main", "Preprocess + LRU Running time: " + std::to_string(getRunningTime(&testScanAllURLsAfterProc, Alg::LRU)) + "s\n");
+	//logger.logInfo("Main", "LRU Running time: " + std::to_string(getRunningTime(&testScanAllURLs, Alg::LRU)) + "s\n");
+	//logger.logInfo("Main", "MRU Running time: " + std::to_string(getRunningTime(&testScanAllURLs, Alg::MRU)) + "s\n");
+	//testGetAllFilenames();
+	testGetTopKFreqItems(10, Alg::LRU);
 	int tmp;
 	std::cin >> tmp;
 	return 0;

@@ -9,18 +9,8 @@ namespace PingCap
 		opened_files = std::unordered_map<std::string, std::fstream*>();
 		logger = Logger(log_file);
 		num_save_URL = 0;
-		//logger.logInfo("Memory", "HAHA");
-		
-		//std::filesystem
-		//logger.logInfo("Memory", std::to_string(PathFileExistsA(temp_file_dir.c_str())));
-		//char buf[256];
-		//GetCurrentDirectoryA(256, buf);
-		//std::string tmp = std::string(buf) + std::string("\\") + temp_file_dir;
-		//logger.logInfo("Memory", tmp);
-
 		// Check if temp_file_dir exists and create it if absent.
 		DWORD ftyp = GetFileAttributesA(temp_file_dir.c_str());
-		//std::cout << GetLastError() << std::endl;
 		// Something is wrong with the path
 		if (ftyp == INVALID_FILE_ATTRIBUTES)
 		{
@@ -87,8 +77,6 @@ namespace PingCap
 	{
 		// Convert all three numbers to int64_t in order to avoid underflow if getMemSize < getPhysicalMemUsed
 		// NOTE: When comparing signed with unsigned, the compiler converts the signed value to unsigned.
-		//logger.logInfo("K", std::to_string((int64_t)getMemSize(Unit::BYTE)) + " " + std::to_string((int64_t)getPhysicalMemUsed(Unit::BYTE)) + " " + std::to_string(NO_FREE_MEM_THRESH) + " " + std::to_string((int64_t)getMemSize(Unit::BYTE) - (int64_t)getPhysicalMemUsed(Unit::BYTE) >= NO_FREE_MEM_THRESH));
-		//return (int64_t)getMemSize(Unit::BYTE) - (int64_t)getPhysicalMemUsed(Unit::BYTE) >= (int64_t)NO_FREE_MEM_THRESH;
 		return (int64_t)getMemSize(Unit::BYTE) - (int64_t)getVirtualMemUsed(Unit::BYTE) >= (int64_t)NO_FREE_MEM_THRESH;
 	}
 
@@ -102,21 +90,18 @@ namespace PingCap
 		if (mode == "r")
 		{
 			std::fstream* input_stream = new std::fstream(filename, std::fstream::in);
-			//input_stream.open(filename, std::fstream::in);
 			opened_files[filename] = input_stream;	
 			return input_stream;
 		}
 		else if (mode == "w")
 		{
 			std::fstream* output_stream = new std::fstream(filename, std::fstream::out | std::fstream::trunc);
-			//output_stream.open(filename, std::fstream::out | std::fstream::trunc);
 			opened_files[filename] = output_stream;
 			return output_stream;
 		}
 		else if (mode == "a")
 		{
 			std::fstream* output_stream = new std::fstream(filename, std::fstream::out | std::fstream::app);
-			//output_stream.open(filename, std::fstream::out | std::fstream::app);
 			opened_files[filename] = output_stream;
 			return output_stream;
 		}
@@ -126,17 +111,6 @@ namespace PingCap
 			return NULL;
 		}
 	}
-	/*
-	void Memory::openInputFile(std::string filename)
-	{
-		input_stream.open(filename, std::ifstream::in);
-	}
-
-	void Memory::openOutputFile(std::string filename)
-	{
-		output_stream.open(filename, std::ifstream::out);
-	}
-	*/
 	
 	void Memory::closeFile(std::string filename)
 	{
@@ -158,48 +132,83 @@ namespace PingCap
 
 	}
 
-	/*
-	void Memory::closeInputFile()
-	{
-		input_stream.close();
-	}
-
-	void Memory::closeOutputFile()
-	{
-		output_stream.close();
-	}
-	*/
-
 	bool Memory::isFileOpened(std::string filename)
 	{
 		return opened_files.find(filename) != opened_files.end();
 	}
 
-	/*
-	bool Memory::isInputFileOpened()
+	void Memory::procURLs(std::string src_path, std::string dst_path)
 	{
-		return input_stream.is_open();
-	}
+		std::cout << "Pre-processing URL list file..." << std::endl;
 
-	bool Memory::isOutputFileOpened()
-	{
-		return output_stream.is_open();
+		std::ifstream input_stream(src_path, std::ifstream::in);
+
+		std::ofstream output_stream(dst_path, std::ofstream::out | std::ofstream::trunc);
+		output_stream.close();
+		output_stream.open(dst_path, std::ofstream::out | std::ofstream::app);
+
+		std::unordered_map<std::string, uint64_t> tmp_counter;
+		uint64_t idx = 0;
+		std::string line;
+		std::string url;
+		std::string count_str;
+		uint64_t count;
+		while (input_stream >> line)
+		{
+			idx++;
+
+			int space = line.find(" ");
+			if (space == std::string::npos)
+			{
+				url = line;
+				count = 1;
+			}
+			else
+			{
+				url = line.substr(0, space);
+				count = std::stoull(line.substr(space+1));
+			}
+			if (!hasFreeMem())
+			{
+				std::cout << "Processed " << idx << " urls" << std::endl;
+				for (auto const& pair : tmp_counter)
+				{
+					output_stream << pair.first << " " << pair.second << std::endl;
+				}
+				tmp_counter.clear();
+			}
+			if (tmp_counter.find(url) == tmp_counter.end())
+			{
+				tmp_counter[url] = count;
+			}
+			else
+			{
+				tmp_counter[url] += count;
+			}
+			
+		}
+		
+		std::cout << "Done" << std::endl;
+		if (!tmp_counter.empty())
+		{
+			for (auto const& pair : tmp_counter)
+			{
+				output_stream << pair.first << " " << pair.second << std::endl;
+			}
+		}
+		input_stream.close();
+		output_stream.close();
 	}
-	*/
 
 	bool Memory::loadNextURL(std::fstream* input_stream, Alg alg)
 	{
 		std::string url;
-		//logger.logInfo("loadNextURL", "Memory size: " + std::to_string(getMemSize(Unit::MB)));
-		//logger.logInfo("loadNextURL", "Actual used: " + std::to_string(getPhysicalMemUsed(Unit::MB)));
 		if (!hasFreeMem())
 		{
-			//logger.printInfo("loadNextURL", "No free memory, so remove an old URL and write it to disk first.");
 			saveOldURL(alg); // Save the least recently used URL to disk and remove it from memory
 		}
 		if (std::getline(*input_stream, url)) // Get next line/url successfully
 		{
-			//std::unordered_map<std::string, std::pair<uint64_t, std::vector<std::string>::iterator>>::iterator idx = counter.find(url);
 			// not present in memory 
 			if (counter.find(url) == counter.end())
 			{
@@ -215,14 +224,42 @@ namespace PingCap
 			}
 			// Load successfully
 			return true; 
-			//return url;
 		}
 		// No more urls to load
 		return false;
-		//return NULL;
 	}
 
-	
+	bool Memory::loadNextURLAfterProc(std::fstream* proc_input_stream, Alg alg)
+	{
+		std::string url;
+		uint64_t count;
+		
+		if (!hasFreeMem())
+		{
+			saveOldURL(alg); // Save the least recently used URL to disk and remove it from memory
+		}
+		if (*proc_input_stream >> url >> count) // Get next line/url successfully
+		{
+			// not present in memory 
+			if (counter.find(url) == counter.end())
+			{
+				LRU_queue.push_front(url);
+				counter[url] = std::pair<uint64_t, std::list<std::string>::iterator>(count, LRU_queue.begin());
+			}
+			// present in memory 
+			else
+			{
+				LRU_queue.erase(counter[url].second);
+				LRU_queue.push_front(url);
+				counter[url] = std::pair<uint64_t, std::list<std::string>::iterator>(count + counter[url].first, LRU_queue.begin());
+			}
+			// Load successfully
+			return true;
+		}
+		// No more urls to load
+		return false;
+	}
+
 	void Memory::saveOldURL(Alg alg)
 	{
 		// Get the least recently used URL and remove it from LRU queue
@@ -232,7 +269,6 @@ namespace PingCap
 		if (LRU_queue.size() == 0)
 		{
 			logger.logError("saveOldURL", "Your memory is too small! This program cannot run.");
-			//logger.printError("saveOldURL", "Your memory is too small! This program cannot run.");
 			exit(1);
 		}
 
@@ -279,7 +315,6 @@ namespace PingCap
 
 		// Remove the URL from map 'counter'
 		counter.erase(replaced_url);
-		//logger.logInfo("saveOldURL", "Save URL '" + last_url + "' (count: " + std::to_string(count) + ") into temp file");
 
 		num_save_URL++;
 	}
@@ -287,6 +322,63 @@ namespace PingCap
 	uint64_t Memory::getNumSaveURL()
 	{
 		return num_save_URL;
+	}
+
+	std::vector<std::string> Memory::getFileNamesInDirectory(std::string directory) 
+	{
+		std::vector<std::string> files;
+		WIN32_FIND_DATA fileData;
+		HANDLE hFind;
+
+		if (!((hFind = FindFirstFile(directory.c_str(), &fileData)) == INVALID_HANDLE_VALUE)) 
+		{
+			while (FindNextFile(hFind, &fileData)) 
+			{
+				files.push_back(fileData.cFileName);
+			}
+		}
+		FindClose(hFind);
+		return files;
+	}
+
+
+	std::vector<std::pair<uint64_t, std::string>> Memory::getTopKFreqItems(int k, Alg alg)
+	{
+		procURLs(url_file, proc_url_file);
+		std::fstream* f = openFile(proc_url_file, "r");
+		// Iterate and count on all urls
+		uint64_t idx = 1;
+		while (loadNextURLAfterProc(f, alg))
+		{
+			if (idx % 2000 == 0)
+			{
+				std::cout << "No." << idx << " URL loaded. " << "Saving URL number: " << getNumSaveURL() << std::endl;
+				std::cout << "Memory used: " << getVirtualMemUsed(Unit::MB) << "/" << getMemSize(Unit::MB) << std::endl;
+			}
+			idx++;
+		}
+
+		std::vector<std::pair<uint64_t, std::string>> top_k;
+		std::vector<std::string> files = getFileNamesInDirectory(temp_file_dir + "*");
+		for (int i = 0; i < files.size(); i++)
+		{
+			if (files[i] == ".." || files[i] == ".")
+			{
+				continue;
+			}
+			std::string file_path = temp_file_dir + files[i];
+			std::string url;
+			uint64_t freq;
+			std::ifstream f(file_path);
+			f >> url >> freq;
+			top_k.push_back(std::pair<uint64_t, std::string>(freq, url));
+			if (top_k.size() > k)
+			{
+				std::sort(top_k.rbegin(), top_k.rend());
+				top_k.pop_back();
+			}
+		}
+		return top_k;
 	}
 }
 
