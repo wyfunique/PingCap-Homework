@@ -66,8 +66,7 @@ Author: Yifan Wang
 
 **（3）** 相应的，在write buffer端的线程会持续读出buffer里属于同一整数子集（也就是要被写入同一临时文件）的连续的URL，直到遇见第一个属于另外子集的URL为止。然后它就释放write buffer的锁、开始写入相应文件，这样可以保证一次读写写入最多的URL，尽可能减少IO次数。
 **注：**
-
-​	1）这样的话每个写线程都要有一个自己的buffer，从总的write buffer先读入自己的buffer，当遇到另外子集的URL时再开始从自己的buffer里写入disk，这样才能保证一个线程写入disk不影响另一个线程从总的write buffer读。
+	1）这样的话每个写线程都要有一个自己的buffer，从总的write buffer先读入自己的buffer，当遇到另外子集的URL时再开始从自己的buffer里写入disk，这样才能保证一个线程写入disk不影响另一个线程从总的write buffer读。
 	2）每个写线程还需要有一个临时文件buffer，因为修改临时文件必须要全部读入内存。所以临时文件不可太大，否则这里会耗用太多内存（这一部分一共需要 写线程数*临时文件buffer size 这么多的内存）
 	3）总write buffer + 所有写线程自己的write buffer和临时文件buffer + 核心运算 <= 内存大小
 	4）在具体实现中，我们设定临时文件大小相对内存来说很小（设定其大小为内存的1%）。而写线程不会很多。因此我们认为临时文件buffer占用内存不大，可以忽略。
