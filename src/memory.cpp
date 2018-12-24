@@ -2,7 +2,16 @@
 
 namespace PingCap
 {
-	Memory::Memory()
+	//std::mutex* read_buffer_lock = new std::mutex();
+	
+	// Lock for main write buffer
+	std::mutex* write_buffer_lock = new std::mutex();
+	// Locks for every temp file
+	std::vector<std::mutex*> file_locks;
+
+	Memory::Memory() {}
+
+	Memory::Memory(int num_writer_threads)
 	{
 		counter = std::unordered_map<std::string, std::pair<uint64_t, std::list<std::string>::iterator>>();
 		LRU_queue = std::list<std::string>();
@@ -23,6 +32,17 @@ namespace PingCap
 				logger.logError("Memory", "Invaid temp_file_dir");
 				exit(1);
 			}
+		}
+
+		// Initialize Locks and writer threads
+		for (int i = 0; i < TEMP_FILE_AMOUNT; i++)
+		{
+			file_locks.push_back(new std::mutex());
+		}
+		for (int i = 0; i < num_writer_threads; i++)
+		{
+			(new Writer(this, WRITE_BUFFER_SIZE, TEMP_FILE_AMOUNT, NO_FREE_BUFFER_THRESH, "writer-"+std::to_string(i)))->start();
+			logger.logInfo("Memory", "Writer thread " + std::to_string(i) + " start");
 		}
 	}
 	
@@ -259,7 +279,7 @@ namespace PingCap
 		// No more urls to load
 		return false;
 	}
-
+	/*
 	void Memory::saveOldURL(Alg alg)
 	{
 		// Get the least recently used URL and remove it from LRU queue
@@ -317,6 +337,57 @@ namespace PingCap
 		counter.erase(replaced_url);
 
 		num_save_URL++;
+	}
+	*/
+	void Memory::saveOldURL(Alg alg)
+	{
+		// Get the least recently used URL and remove it from LRU queue
+
+		// Now you have no free memory and there is no record in your memory. 
+		// This means your memory is not enough initially. The game cannot start.
+		if (LRU_queue.size() == 0)
+		{
+			logger.logError("saveOldURL", "Your memory is too small! This program cannot run.");
+			exit(1);
+		}
+
+		std::string replaced_url;
+		if (alg == Alg::LRU)
+		{
+			replaced_url = LRU_queue.back();
+			LRU_queue.pop_back();
+		}
+		else if (alg == Alg::MRU)
+		{
+			replaced_url = LRU_queue.front();
+			LRU_queue.pop_front();
+		}
+		else
+		{
+			logger.logError("saveOldURL", "Unsupported URL replacement algorithm");
+			exit(1);
+		}
+
+		uint64_t count = counter[replaced_url].first;
+
+		// Save the URL into main write buffer
+		write_buffer_lock->lock();
+		// If main write buffer is full, release lock and sleep for a while
+		while (isWriteBufferFull()) 
+		{
+			logger.logInfo("saveOldURL", "Write buffer is full");
+			write_buffer_lock->unlock();
+			Sleep(3000);
+			write_buffer_lock->lock();
+		}
+		
+		write_buffer.push_back(std::pair<std::string, uint64_t>(replaced_url, count));
+	
+		// Remove the URL from map 'counter'
+		counter.erase(replaced_url);
+
+		num_save_URL++;
+		write_buffer_lock->unlock();
 	}
 
 	uint64_t Memory::getNumSaveURL()
@@ -380,5 +451,161 @@ namespace PingCap
 		}
 		return top_k;
 	}
+	
+	bool Memory::isReadBufferFull()
+	{
+		uint64_t cur_buffer_size = 0; // in bytes
+		for (int i = 0; i < read_buffer.size(); i++)
+		{
+			cur_buffer_size += read_buffer[i].size();
+		}
+		return (max_read_buffer_size - cur_buffer_size < NO_FREE_BUFFER_THRESH);
+	}
+
+	bool Memory::isReadBufferEmpty()
+	{
+		return (read_buffer.size() == 0);
+	}
+
+	bool Memory::isWriteBufferFull()
+	{
+		uint64_t cur_buffer_size = 0; // in bytes
+		for (int i = 0; i < write_buffer.size(); i++)
+		{
+			std::cout << i << std::endl;
+			cur_buffer_size += write_buffer[i].first.size();
+			std::cout << i << std::endl;
+		}
+		return ((int64_t)max_write_buffer_size - (int64_t)cur_buffer_size < (int64_t)NO_FREE_BUFFER_THRESH);
+	}
+
+	bool Memory::isWriteBufferEmpty()
+	{
+		return (write_buffer.size() == 0);
+	}
+
+	// =======================================================================================
+
+	Writer::Writer() {}
+
+	Writer::Writer(Memory* mem, uint64_t write_buffer_size, uint64_t global_temp_file_amount, uint64_t global_no_free_buffer_thresh, std::string thread_name)
+	{
+		memory = mem;
+		max_secd_buf_size = write_buffer_size * 0.5;
+		temp_file_amount = global_temp_file_amount;
+		no_free_buffer_thresh = global_no_free_buffer_thresh;
+		name = thread_name;
+	}
+
+	size_t Writer::getTempFileIndex(std::string url)
+	{
+		std::hash<std::string> str_hash;
+		size_t hash_res = str_hash(url); 
+		// Since hash result is 32 bit, every subset has a length of (2^32 / temp_file_amount)
+		// Then we can get the index of temp file that the given URL should write to
+		return hash_res / (size_t)(pow(2, 32) / temp_file_amount);
+	}
+
+	bool Writer::isSecdBufFull()
+	{
+		uint64_t cur_buffer_size = 0; // in bytes
+		for (auto record : secd_write_buffer)
+		{
+			cur_buffer_size += record.first.size();
+		}
+		return (max_secd_buf_size - cur_buffer_size < no_free_buffer_thresh);
+	}
+
+	bool Writer::isSecdBuffEmpty()
+	{
+		return (secd_write_buffer.size() == 0);
+	}
+
+	void Writer::write(Writer* writer)
+	{
+		while (true)
+		{
+			// First get the lock for main write buffer
+			write_buffer_lock->lock();
+
+			// Main write buffer is not empty
+			if (!writer->memory->isWriteBufferEmpty()) 
+			{
+				// Local write buffer is full, then start writing to disk
+				if (writer->isSecdBufFull()) 
+				{
+					// Get temp file index
+					size_t temp_file_index = writer->getTempFileIndex((*(writer->secd_write_buffer.begin())).first);
+					std::string temp_file_path = std::to_string(temp_file_index) + ".tmp";
+
+					// Get the lock for temp file with that index
+					file_locks[temp_file_index]->lock();
+
+					std::fstream* input_stream = writer->memory->openFile(temp_file_path, "r");
+					std::string new_temp_file_content = "";
+
+					std::string url;
+					uint64_t count;
+					
+					// For each line in that file, if there is a same URL in local buffer, we merge them and write the merged result to file
+					while (*input_stream >> url >> count)
+					{
+						if (writer->secd_write_buffer.find(url) != writer->secd_write_buffer.end())
+						{
+							count += writer->secd_write_buffer[url];
+							writer->secd_write_buffer.erase(url);
+						}
+						new_temp_file_content += url + " " + std::to_string(count) + "\n";
+					}
+
+					// Append all unvisited URL and their counts to end of the file
+					for (auto unvisited_record : writer->secd_write_buffer)
+					{
+						new_temp_file_content += unvisited_record.first + " " + std::to_string(unvisited_record.second) + "\n";
+					}
+
+					writer->memory->closeFile(temp_file_path);
+					input_stream = NULL;
+					std::fstream* output_stream = writer->memory->openFile(temp_file_path, "w");
+					(*output_stream) << new_temp_file_content;
+					writer->memory->closeFile(temp_file_path);
+					output_stream = NULL;
+					writer->secd_write_buffer.clear();
+
+					file_locks[temp_file_index]->unlock();
+					
+				}
+
+				// Now the local buffer is empty, start to read records from main write buffer again until the next record is not in current temp file 
+				// or main write buffer is empty
+				// or local buffer is full
+				std::pair<std::string, uint64_t> record = writer->memory->write_buffer.back();
+				writer->memory->write_buffer.pop_back();
+				writer->secd_write_buffer[record.first] = record.second;
+				while (!writer->memory->isWriteBufferEmpty() && !writer->isSecdBufFull() &&
+					writer->getTempFileIndex(writer->memory->write_buffer.back().first) == writer->getTempFileIndex(record.first))
+				{
+					record = writer->memory->write_buffer.back();
+					writer->memory->write_buffer.pop_back();
+					if (writer->secd_write_buffer.find(record.first) != writer->secd_write_buffer.end())
+					{
+						writer->secd_write_buffer[record.first] += record.second;
+					}
+					else
+					{
+						writer->secd_write_buffer[record.first] = record.second;
+					}
+				}
+			}
+			write_buffer_lock->unlock();
+		}
+	}
+
+	void Writer::start()
+	{
+		std::thread write_thread(Writer::write, this);
+		write_thread.detach();
+	}
+
 }
 

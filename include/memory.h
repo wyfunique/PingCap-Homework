@@ -14,8 +14,9 @@
 #include <string>
 #include <unordered_map>
 #include <filesystem>
+#include <thread>
+#include <mutex>
 #include "../include/logger.h"
-
 
 namespace PingCap 
 {
@@ -41,7 +42,7 @@ namespace PingCap
 	
 	// TODO: Write all config parameters to config file and read the file each time when starting.
 	const Unit DEFAULT_UNIT = Unit::BYTE;
-	const uint64_t MEMORY_SIZE = 5 * MB;
+	const uint64_t MEMORY_SIZE = 7 * MB;
 	
 	/*
 		This threashold equals to (2 * maximum URL length + 8) bytes
@@ -49,12 +50,22 @@ namespace PingCap
 		(1) Space for one key (URL) and one value (frequency of the URL, type uint64_t, 8 bytes) in the map 'counter', that is, at most (maximum URL length + 8) bytes.
 		(2) Space for one element (URL) in the list 'urls', that is, at most (maximum URL length) bytes.
 	*/
-	const uint64_t NO_FREE_MEM_THRESH = 308 * BYTE; 
+	const uint64_t MAX_URL_LENGTH = 150 * BYTE;
+	const uint64_t NO_FREE_MEM_THRESH = 2 * MAX_URL_LENGTH + 8;
 	
 	const std::string TEMP_FILE_DIR = "temp\\";
 	const std::string LOG_FILE = "log.txt";
 	const std::string URL_FILE = "util\\urls.txt";
 	const std::string PROC_URL_FILE = "util\\proc_urls_1.txt";
+	const float TEMP_FILE_SIZE_RATIO = 0.01;
+	const uint64_t TEMP_FILE_SIZE = TEMP_FILE_SIZE_RATIO * MEMORY_SIZE;
+	const uint64_t TEMP_FILE_AMOUNT = 100 / TEMP_FILE_SIZE_RATIO;
+
+	const float READ_BUFFER_RATIO = 0.2;
+	const float WRITE_BUFFER_RATIO = 0.3;
+	const uint64_t READ_BUFFER_SIZE = MEMORY_SIZE * READ_BUFFER_RATIO;
+	const uint64_t WRITE_BUFFER_SIZE = MEMORY_SIZE * WRITE_BUFFER_RATIO;
+	const uint64_t NO_FREE_BUFFER_THRESH = MAX_URL_LENGTH;
 
 	/*
 		This class is abstract of main memory. 
@@ -94,7 +105,14 @@ namespace PingCap
 
 		public:
 
+			std::vector<std::string> read_buffer;
+			std::vector<std::pair<std::string, uint64_t>> write_buffer;
+			const uint64_t max_read_buffer_size = READ_BUFFER_SIZE;
+			const uint64_t max_write_buffer_size = WRITE_BUFFER_SIZE;
+
 			Memory();
+
+			Memory(int num_writer_threads);
 
 			/*
 				Print stuff in map 'counter'
@@ -174,9 +192,84 @@ namespace PingCap
 			*/
 			std::vector<std::pair<uint64_t, std::string>> getTopKFreqItems(int k, Alg alg);
 
+			/*
+				Get size of read buffer
+			*/
+			//uint64_t getReadBufferSize();
+
+			/*
+				Get size of write buffer
+			*/
+			//uint64_t getWriteBufferSize();
+
+			/*
+			Check if the read buffer is full
+			*/
+			bool isReadBufferFull();
+
+			/*
+			Check if the read buffer is empty
+			*/
+			bool isReadBufferEmpty();
+
+			/*
+			Check if the write buffer is full
+			*/
+			bool isWriteBufferFull();
+
+			/*
+			Check if the write buffer is empty
+			*/
+			bool isWriteBufferEmpty();
+
 	};
+
+	/*
+		This class implements thread of writer to write records from memory to disk.
+	*/
+	class Writer
+	{
+		private:
+			std::string name;
+			uint64_t max_secd_buf_size; 
+			uint64_t temp_file_amount;
+			uint64_t no_free_buffer_thresh;
+			// secd_write_buffer is the local write buffer of every writer thread
+			std::map<std::string, uint64_t> secd_write_buffer;
+			Memory* memory;
+		
+		public:
+			
+			Writer();
+			
+			Writer(Memory* mem, uint64_t write_buffer_size, uint64_t temp_file_amount, uint64_t global_no_free_buffer_thresh, std::string name);
+			
+			/*
+				Get the index of hash bucket of given URL
+			*/
+			size_t getTempFileIndex(std::string url);
+
+			/*
+				Check if local write buffer is full
+			*/
+			bool isSecdBufFull();
+
+			/*
+				Check if local write buffer is empty
+			*/
+			bool isSecdBuffEmpty();
+
+			/*
+				Main function for reading records from main write buffer and saving records to disk
+			*/
+			static void write(Writer* writer);
+
+			/*
+				Run the writer thread
+			*/
+			void start();
+	};
+	
 }
-
-
 
 #endif
